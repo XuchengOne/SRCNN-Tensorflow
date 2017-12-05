@@ -82,13 +82,15 @@ class SRCNN(object):
 
     if self.load(self.checkpoint_dir):
       print(" [*] Load SUCCESS")
+      counter = self.epoch_num * len(train_data) // config.batch_size
     else:
       print(" [!] Load failed...")
 
     if config.is_train:
       print("Training...")
 
-      for ep in xrange(config.epoch):
+      # for ep in xrange(config.epoch):
+      while self.epoch_num < config.epoch:
         # Run by batch images
         batch_idxs = len(train_data) // config.batch_size
         for idx in xrange(0, batch_idxs):
@@ -100,9 +102,10 @@ class SRCNN(object):
 
           if counter % 10 == 0:
             print("Epoch: [%2d], step: [%2d], time: [%4.4f], loss: [%.8f]" \
-              % ((ep+1), counter, time.time()-start_time, err))
+              % (self.epoch_num+1, counter, time.time()-start_time, err))
 
-        self.save(config.checkpoint_dir, ep)
+        self.save(config.checkpoint_dir, self.epoch_num)
+        self.epoch_num += 1
 
     else:
       print("Testing...")
@@ -140,7 +143,7 @@ class SRCNN(object):
     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
         ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-        self.epoch_num = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
+        self.epoch_num = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])+1
         self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
         return True
     else:
