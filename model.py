@@ -33,6 +33,8 @@ class SRCNN(object):
 
     self.checkpoint_dir = checkpoint_dir
     self.sample_dir = sample_dir
+
+    self.epoch_num = 0
     self.build_model()
 
   def build_model(self):
@@ -100,15 +102,13 @@ class SRCNN(object):
             print("Epoch: [%2d], step: [%2d], time: [%4.4f], loss: [%.8f]" \
               % ((ep+1), counter, time.time()-start_time, err))
 
-          if counter % 500 == 0:
-            self.save(config.checkpoint_dir, counter)
+        self.save(config.checkpoint_dir, ep)
 
     else:
       print("Testing...")
-
       result = self.pred.eval({self.images: train_data, self.labels: train_label})
-
       result = merge(result, [nx, ny])
+      print result.shape
       result = result.squeeze()
       image_path = os.path.join(os.getcwd(), config.sample_dir)
       image_path = os.path.join(image_path, "test_image.png")
@@ -120,7 +120,7 @@ class SRCNN(object):
     conv3 = tf.nn.conv2d(conv2, self.weights['w3'], strides=[1,1,1,1], padding='VALID') + self.biases['b3']
     return conv3
 
-  def save(self, checkpoint_dir, step):
+  def save(self, checkpoint_dir, epoch_num):
     model_name = "SRCNN.model"
     model_dir = "%s_%s" % ("srcnn", self.label_size)
     checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
@@ -130,7 +130,7 @@ class SRCNN(object):
 
     self.saver.save(self.sess,
                     os.path.join(checkpoint_dir, model_name),
-                    global_step=step)
+                    global_step=epoch_num)
 
   def load(self, checkpoint_dir):
     print(" [*] Reading checkpoints...")
@@ -140,6 +140,7 @@ class SRCNN(object):
     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
         ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+        self.epoch_num = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
         self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
         return True
     else:

@@ -53,6 +53,15 @@ def preprocess(path, scale=3):
   input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=False)
   input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=False)
 
+  if not FLAGS.is_train:
+
+    print input_.shape, label_.shape
+    sample_path = os.path.join(os.getcwd(), FLAGS.sample_dir)
+    origin_path = os.path.join(sample_path, "test_image(original).png")
+    imsave(label_, origin_path)
+    bicubic_path = os.path.join(sample_path, "test_image(bicubic).png")
+    imsave(input_, bicubic_path)
+
   return input_, label_
 
 def prepare_data(sess, dataset):
@@ -63,7 +72,7 @@ def prepare_data(sess, dataset):
     For train dataset, output data would be ['.../t1.bmp', '.../t2.bmp', ..., '.../t99.bmp']
   """
   if FLAGS.is_train:
-    filenames = os.listdir(dataset)
+    # filenames = os.listdir(dataset)
     data_dir = os.path.join(os.getcwd(), dataset)
     data = glob.glob(os.path.join(data_dir, "*.bmp"))
   else:
@@ -125,6 +134,7 @@ def input_setup(sess, config):
     data = prepare_data(sess, dataset="Train")
   else:
     data = prepare_data(sess, dataset="Test")
+    # print len(data)
 
   sub_input_sequence = []
   sub_label_sequence = []
@@ -152,6 +162,8 @@ def input_setup(sess, config):
           sub_label_sequence.append(sub_label)
 
   else:
+
+    # this is why got only one test image
     input_, label_ = preprocess(data[2], config.scale)
 
     if len(input_.shape) == 3:
@@ -161,6 +173,7 @@ def input_setup(sess, config):
 
     # Numbers of sub-images in height and width of image are needed to compute merge operation.
     nx = ny = 0 
+    print config.stride
     for x in range(0, h-config.image_size+1, config.stride):
       nx += 1; ny = 0
       for y in range(0, w-config.image_size+1, config.stride):
@@ -191,11 +204,29 @@ def imsave(image, path):
   return scipy.misc.imsave(path, image)
 
 def merge(images, size):
+  # h, w = images.shape[1], images.shape[2]
+  # img = np.zeros((h*size[0], w*size[1], 1))
+  # for idx, image in enumerate(images):
+  #   i = idx % size[1]
+  #   j = idx // size[1]
+  #   img[j*h:j*h+h, i*w:i*w+w, :] = image
+
+  # return img
+  
+
+  '''rewrittern by bruce'''
+
   h, w = images.shape[1], images.shape[2]
-  img = np.zeros((h*size[0], w*size[1], 1))
+  nx, ny = size[0], size[1]
+  stride = FLAGS.stride
+  # print stride
+
+  img = np.zeros((h+stride*(nx-1), w+stride*(ny-1), 1))
   for idx, image in enumerate(images):
-    i = idx % size[1]
-    j = idx // size[1]
-    img[j*h:j*h+h, i*w:i*w+w, :] = image
+    i = (idx / ny) * stride
+    j = (idx % ny) * stride
+    # print i, j
+    img[i:i+h, j:j+w, :] = image
 
   return img
+
