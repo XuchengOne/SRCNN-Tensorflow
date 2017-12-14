@@ -51,16 +51,7 @@ def preprocess(path, scale=3):
   label_ = label_ / 255.
 
   input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=False)
-  input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=False)
-
-  if not FLAGS.is_train:
-
-    print input_.shape, label_.shape
-    sample_path = os.path.join(os.getcwd(), FLAGS.sample_dir)
-    origin_path = os.path.join(sample_path, "test_image(original).png")
-    imsave(label_, origin_path)
-    bicubic_path = os.path.join(sample_path, "test_image(bicubic).png")
-    imsave(input_, bicubic_path)
+  input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=False)    
 
   return input_, label_
 
@@ -164,7 +155,9 @@ def input_setup(sess, config):
   else:
 
     # this is why got only one test image
-    input_, label_ = preprocess(data[2], config.scale)
+    input_, label_ = preprocess(data[config.sample_num], config.scale)
+    out_input_sequence = []
+    out_label_sequence = []
 
     if len(input_.shape) == 3:
       h, w, _ = input_.shape
@@ -173,19 +166,32 @@ def input_setup(sess, config):
 
     # Numbers of sub-images in height and width of image are needed to compute merge operation.
     nx = ny = 0 
-    print config.stride
     for x in range(0, h-config.image_size+1, config.stride):
       nx += 1; ny = 0
       for y in range(0, w-config.image_size+1, config.stride):
         ny += 1
         sub_input = input_[x:x+config.image_size, y:y+config.image_size] # [33 x 33]
         sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size] # [21 x 21]
-        
+
         sub_input = sub_input.reshape([config.image_size, config.image_size, 1])  
         sub_label = sub_label.reshape([config.label_size, config.label_size, 1])
 
+        # segement the input image in the same way as the label image, and append the segments into lists
+        out_input_sequence.append(input_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size].reshape([config.label_size, config.label_size, 1]))
+        out_label_sequence.append(sub_label)
+
         sub_input_sequence.append(sub_input)
         sub_label_sequence.append(sub_label)
+
+    # output original image and bicubic interpolated images
+    sample_path = os.path.join(os.getcwd(), config.sample_dir)
+    origin_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(original).png")
+    out_label = merge(np.asarray(out_label_sequence), [nx, ny])
+    imsave(out_label.squeeze(), origin_path)
+    bicubic_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(bicubic).png")
+    out_input = merge(np.asarray(out_input_sequence), [nx, ny])
+    imsave(out_input.squeeze(), bicubic_path)
+
 
   """
   len(sub_input_sequence) : the number of sub_input (33 x 33 x ch) in one image

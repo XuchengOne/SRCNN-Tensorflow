@@ -111,10 +111,11 @@ class SRCNN(object):
       print("Testing...")
       result = self.pred.eval({self.images: train_data, self.labels: train_label})
       result = merge(result, [nx, ny])
-      print result.shape
+      # print "Before squeeze", result.shape
       result = result.squeeze()
+      # print "After squeeze", result.shape
       image_path = os.path.join(os.getcwd(), config.sample_dir)
-      image_path = os.path.join(image_path, "test_image.png")
+      image_path = os.path.join(image_path, str(config.sample_num) + "-test_image.png")
       imsave(result, image_path)
 
   def model(self):
