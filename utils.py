@@ -8,7 +8,7 @@ import h5py
 import random
 import matplotlib.pyplot as plt
 
-from PIL import Image  # for loading images as YCbCr format
+from PIL import Image, ImageOps  # for loading images as YCbCr format
 import scipy.misc
 import scipy.ndimage
 import numpy as np
@@ -43,15 +43,25 @@ def preprocess(path, scale=3):
     input_: image applied bicubic interpolation (low-resolution)
     label_: image with original resolution (high-resolution)
   """
-  image = imread(path, is_grayscale=True)
+  image = imread(path, FLAGS.is_grayscale)
   label_ = modcrop(image, scale)
 
-  # Must be normalized
-  image = image / 255.
-  label_ = label_ / 255.
+  input_ = label_
 
-  input_ = scipy.ndimage.interpolation.zoom(label_, (1./scale), prefilter=False)
-  input_ = scipy.ndimage.interpolation.zoom(input_, (scale/1.), prefilter=False)    
+  if FLAGS.is_grayscale:
+    input_ = Image.fromarray(label_)
+    input_.thumbnail((input_.size[0]/scale, input_.size[1]/scale))
+    input_ = input_.resize((label_.shape[1], label_.shape[0]), resample=Image.BICUBIC)
+    input_ = np.array(input_.getdata(), np.uint8).reshape((label_.shape[0], label_.shape[1], 1))
+  else:
+    input_ = Image.fromarray(label_, mode='RGB')
+    input_.thumbnail((input_.size[0]/scale, input_.size[1]/scale))
+    input_ = input_.resize((label_.shape[1], label_.shape[0]), resample=Image.BICUBIC)
+    input_ = np.array(input_.getdata(), np.uint8).reshape((label_.shape[0], label_.shape[1], 3))
+
+  # Must be normalized
+  label_ = label_ / 255.
+  input_ = input_ / 255.
 
   return input_, label_
 
@@ -94,7 +104,8 @@ def imread(path, is_grayscale=True):
   if is_grayscale:
     return scipy.misc.imread(path, flatten=True, mode='YCbCr').astype(np.float)
   else:
-    return scipy.misc.imread(path, mode='YCbCr').astype(np.float)
+    # return scipy.misc.imread(path, mode='YCbCr').astype(np.float)
+    return scipy.misc.imread(path, mode = 'RGB')
 
 def modcrop(image, scale=3):
   """
@@ -135,22 +146,31 @@ def input_setup(sess, config):
     for i in xrange(len(data)):
       input_, label_ = preprocess(data[i], config.scale)
 
-      if len(input_.shape) == 3:
+      if len(input_.shape) == 3:  # RGB mode
+
         h, w, _ = input_.shape
-      else:
+        for x in range(0, h-config.image_size+1, config.stride):
+          for y in range(0, w-config.image_size+1, config.stride):
+            sub_input = input_[x:x+config.image_size, y:y+config.image_size, :] # [33 x 33]
+            sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size, :] # [21 x 21]
+
+            sub_input_sequence.append(sub_input)
+            sub_label_sequence.append(sub_label)
+
+      else:  # grayscale mode
+
         h, w = input_.shape
+        for x in range(0, h-config.image_size+1, config.stride):
+          for y in range(0, w-config.image_size+1, config.stride):
+            sub_input = input_[x:x+config.image_size, y:y+config.image_size] # [33 x 33]
+            sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size] # [21 x 21]
 
-      for x in range(0, h-config.image_size+1, config.stride):
-        for y in range(0, w-config.image_size+1, config.stride):
-          sub_input = input_[x:x+config.image_size, y:y+config.image_size] # [33 x 33]
-          sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size] # [21 x 21]
+            # Make channel value
+            sub_input = sub_input.reshape([config.image_size, config.image_size, 1])  
+            sub_label = sub_label.reshape([config.label_size, config.label_size, 1])
 
-          # Make channel value
-          sub_input = sub_input.reshape([config.image_size, config.image_size, 1])  
-          sub_label = sub_label.reshape([config.label_size, config.label_size, 1])
-
-          sub_input_sequence.append(sub_input)
-          sub_label_sequence.append(sub_label)
+            sub_input_sequence.append(sub_input)
+            sub_label_sequence.append(sub_label)
 
   else:
 
@@ -159,38 +179,63 @@ def input_setup(sess, config):
     out_input_sequence = []
     out_label_sequence = []
 
-    if len(input_.shape) == 3:
+    if len(input_.shape) == 3:  # RGB mode
       h, w, _ = input_.shape
+      # Numbers of sub-images in height and width of image are needed to compute merge operation.
+      nx = ny = 0 
+      for x in range(0, h-config.image_size+1, config.stride):
+        nx += 1; ny = 0
+        for y in range(0, w-config.image_size+1, config.stride):
+          ny += 1
+          sub_input = input_[x:x+config.image_size, y:y+config.image_size, :] # [33 x 33]
+          sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size, :] # [21 x 21]
+
+          # segement the input image in the same way as the label image, and append the segments into lists
+          out_input_sequence.append(input_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size, :])
+          out_label_sequence.append(sub_label)
+
+          sub_input_sequence.append(sub_input)
+          sub_label_sequence.append(sub_label)
+
+      # output original image and bicubic interpolated images
+      sample_path = os.path.join(os.getcwd(), config.sample_dir)
+      origin_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(original).png")
+      out_label = merge(np.asarray(out_label_sequence), [nx, ny])
+      imsave(out_label, origin_path)
+      bicubic_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(bicubic).png")
+      out_input = merge(np.asarray(out_input_sequence), [nx, ny])
+      imsave(out_input, bicubic_path)
+
     else:
       h, w = input_.shape
 
-    # Numbers of sub-images in height and width of image are needed to compute merge operation.
-    nx = ny = 0 
-    for x in range(0, h-config.image_size+1, config.stride):
-      nx += 1; ny = 0
-      for y in range(0, w-config.image_size+1, config.stride):
-        ny += 1
-        sub_input = input_[x:x+config.image_size, y:y+config.image_size] # [33 x 33]
-        sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size] # [21 x 21]
+      # Numbers of sub-images in height and width of image are needed to compute merge operation.
+      nx = ny = 0 
+      for x in range(0, h-config.image_size+1, config.stride):
+        nx += 1; ny = 0
+        for y in range(0, w-config.image_size+1, config.stride):
+          ny += 1
+          sub_input = input_[x:x+config.image_size, y:y+config.image_size] # [33 x 33]
+          sub_label = label_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size] # [21 x 21]
 
-        sub_input = sub_input.reshape([config.image_size, config.image_size, 1])  
-        sub_label = sub_label.reshape([config.label_size, config.label_size, 1])
+          sub_input = sub_input.reshape([config.image_size, config.image_size, 1])  
+          sub_label = sub_label.reshape([config.label_size, config.label_size, 1])
 
-        # segement the input image in the same way as the label image, and append the segments into lists
-        out_input_sequence.append(input_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size].reshape([config.label_size, config.label_size, 1]))
-        out_label_sequence.append(sub_label)
+          # segement the input image in the same way as the label image, and append the segments into lists
+          out_input_sequence.append(input_[x+padding:x+padding+config.label_size, y+padding:y+padding+config.label_size].reshape([config.label_size, config.label_size, 1]))
+          out_label_sequence.append(sub_label)
 
-        sub_input_sequence.append(sub_input)
-        sub_label_sequence.append(sub_label)
+          sub_input_sequence.append(sub_input)
+          sub_label_sequence.append(sub_label)
 
-    # output original image and bicubic interpolated images
-    sample_path = os.path.join(os.getcwd(), config.sample_dir)
-    origin_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(original).png")
-    out_label = merge(np.asarray(out_label_sequence), [nx, ny])
-    imsave(out_label.squeeze(), origin_path)
-    bicubic_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(bicubic).png")
-    out_input = merge(np.asarray(out_input_sequence), [nx, ny])
-    imsave(out_input.squeeze(), bicubic_path)
+      # output original image and bicubic interpolated images
+      sample_path = os.path.join(os.getcwd(), config.sample_dir)
+      origin_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(original).png")
+      out_label = merge(np.asarray(out_label_sequence), [nx, ny])
+      imsave(out_label.squeeze(), origin_path)
+      bicubic_path = os.path.join(sample_path, str(config.sample_num) + "-test_image(bicubic).png")
+      out_input = merge(np.asarray(out_input_sequence), [nx, ny])
+      imsave(out_input.squeeze(), bicubic_path)
 
 
   """
@@ -198,8 +243,8 @@ def input_setup(sess, config):
   (sub_input_sequence[0]).shape : (33, 33, 1)
   """
   # Make list to numpy array. With this transform
-  arrdata = np.asarray(sub_input_sequence) # [?, 33, 33, 1]
-  arrlabel = np.asarray(sub_label_sequence) # [?, 21, 21, 1]
+  arrdata = np.asarray(sub_input_sequence) # [?, 33, 33, 1 or 3]
+  arrlabel = np.asarray(sub_label_sequence) # [?, 21, 21, 1 or 3]
 
   make_data(sess, arrdata, arrlabel)
 
@@ -226,8 +271,10 @@ def merge(images, size):
   nx, ny = size[0], size[1]
   stride = FLAGS.stride
   # print stride
-
   img = np.zeros((h+stride*(nx-1), w+stride*(ny-1), 1))
+  if not FLAGS.is_grayscale:
+    img = np.zeros((h+stride*(nx-1), w+stride*(ny-1), 3))
+
   for idx, image in enumerate(images):
     i = (idx / ny) * stride
     j = (idx % ny) * stride

@@ -13,7 +13,8 @@ flags.DEFINE_integer("batch_size", 128, "The size of batch images [128]")
 flags.DEFINE_integer("image_size", 33, "The size of image to use [33]")
 flags.DEFINE_integer("label_size", 21, "The size of label to produce [21]")
 flags.DEFINE_float("learning_rate", 1e-4, "The learning rate of gradient descent algorithm [1e-4]")
-flags.DEFINE_integer("c_dim", 1, "Dimension of image color. [1]")
+# flags.DEFINE_integer("c_dim", 1, "Dimension of image color. [1]")
+flags.DEFINE_boolean("is_grayscale", True , "True for grayscale mode, False for RGB mode. [1]")
 flags.DEFINE_integer("scale", 3, "The size of scale factor for preprocessing input image [3]")
 flags.DEFINE_integer("stride", 14, "The size of stride to apply input image [14]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint", "Name of checkpoint directory [checkpoint]")
@@ -37,7 +38,7 @@ def main(_):
                   image_size=FLAGS.image_size, 
                   label_size=FLAGS.label_size, 
                   batch_size=FLAGS.batch_size,
-                  c_dim=FLAGS.c_dim, 
+                  is_grayscale = FLAGS.is_grayscale,
                   checkpoint_dir=FLAGS.checkpoint_dir,
                   sample_dir=FLAGS.sample_dir)
 

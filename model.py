@@ -19,17 +19,17 @@ class SRCNN(object):
                image_size=33,
                label_size=21, 
                batch_size=128,
-               c_dim=1, 
+               is_grayscale = False,
                checkpoint_dir=None, 
                sample_dir=None):
 
     self.sess = sess
-    self.is_grayscale = (c_dim == 1)
+    self.is_grayscale = is_grayscale
     self.image_size = image_size
     self.label_size = label_size
     self.batch_size = batch_size
 
-    self.c_dim = c_dim
+    self.c_dim = 1 if is_grayscale else 3
 
     self.checkpoint_dir = checkpoint_dir
     self.sample_dir = sample_dir
@@ -42,20 +42,21 @@ class SRCNN(object):
     self.labels = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.c_dim], name='labels')
     
     self.weights = {
-      'w1': tf.Variable(tf.random_normal([9, 9, 1, 64], stddev=1e-3), name='w1'),
+      'w1': tf.Variable(tf.random_normal([9, 9, self.c_dim, 64], stddev=1e-3), name='w1'),
       'w2': tf.Variable(tf.random_normal([1, 1, 64, 32], stddev=1e-3), name='w2'),
-      'w3': tf.Variable(tf.random_normal([5, 5, 32, 1], stddev=1e-3), name='w3')
+      'w3': tf.Variable(tf.random_normal([5, 5, 32, self.c_dim], stddev=1e-3), name='w3')
     }
     self.biases = {
       'b1': tf.Variable(tf.zeros([64]), name='b1'),
       'b2': tf.Variable(tf.zeros([32]), name='b2'),
-      'b3': tf.Variable(tf.zeros([1]), name='b3')
+      'b3': tf.Variable(tf.zeros([self.c_dim]), name='b3')
     }
 
     self.pred = self.model()
 
     # Loss function (MSE)
-    self.loss = tf.reduce_mean(tf.square(self.labels - self.pred))
+    # self.loss = tf.reduce_mean(tf.square(self.labels - self.pred))
+    self.loss = tf.losses.mean_squared_error(self.labels, self.pred)
 
     self.saver = tf.train.Saver()
 
@@ -103,8 +104,8 @@ class SRCNN(object):
           if counter % 10 == 0:
             print("Epoch: [%2d], step: [%2d], time: [%4.4f], loss: [%.8f]" \
               % (self.epoch_num+1, counter, time.time()-start_time, err))
-
-        self.save(config.checkpoint_dir, self.epoch_num)
+        if self.epoch_num % 10 == 0:
+          self.save(config.checkpoint_dir, self.epoch_num)
         self.epoch_num += 1
 
     else:
@@ -112,7 +113,10 @@ class SRCNN(object):
       result = self.pred.eval({self.images: train_data, self.labels: train_label})
       result = merge(result, [nx, ny])
       # print "Before squeeze", result.shape
-      result = result.squeeze()
+      if config.is_grayscale:
+        result = result.squeeze()
+      # else:
+      #   result *= 255
       # print "After squeeze", result.shape
       image_path = os.path.join(os.getcwd(), config.sample_dir)
       image_path = os.path.join(image_path, str(config.sample_num) + "-test_image.png")
